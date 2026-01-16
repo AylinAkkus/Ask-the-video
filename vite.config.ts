@@ -11,9 +11,6 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       outDir: 'build',
       rollupOptions: {
-        input: {
-          emptyTab: 'empty-tab.html',
-        },
         output: {
           chunkFileNames: 'assets/chunk-[hash].js',
         },
@@ -21,6 +18,13 @@ export default defineConfig(({ mode }) => {
     },
 
     plugins: [crx({ manifest }), react()],
+    
+    // Define process.env for browser compatibility
+    define: {
+      'process.env': {},
+      'process.version': '"v16.0.0"',
+      'process.versions': '{}',
+    },
 
     server: {
       cors: {

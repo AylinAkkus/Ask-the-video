@@ -1,117 +1,104 @@
-# sidebar-boilerplate
+# AskTheVideo - YouTube Video Chat Extension
 
-> Chrome extension Vite + React + Material UI + Manifest v3
+A Chrome extension that lets you chat with YouTube videos using AI. Ask questions about any video and get answers based on the transcript with timestamp references.
 
-## What problems does the current build solve
+## Features
 
-### 1. Added sidebar
+- 🎬 **Automatic Transcript Extraction** - Fetches video transcripts from YouTube videos
+- 💬 **AI-Powered Q&A** - Ask questions about video content and get intelligent responses
+- ⏰ **Timestamp References** - Responses include clickable timestamps that jump to relevant parts
+- 🎯 **Smart Caption Selection** - Prefers manual captions over auto-generated ones
+- 📱 **Side Panel Interface** - Clean chat interface in Chrome's side panel
 
-The sidebar opens in a modal window over the page content.
+## How It Works
 
-Closes when clicking the close icon, clicking outside the sidebar, or pressing `Esc` on the keyboard
-Sidebar files are located in the `/src/contentScript/Sidebar/` folder
+1. **Open any YouTube video** - The extension automatically detects YouTube video pages
+2. **Transcript extraction** - Fetches the video's transcript (manual captions preferred)
+3. **Chat in side panel** - Click the extension icon to open the chat interface
+4. **Ask questions** - Type your questions about the video content
+5. **Get answers with timestamps** - AI responds with relevant information and timestamp links
 
-### 2. Sidebar styles are isolated from page styles and don't break on complex resources
+## Architecture
 
-Extension style isolation is solved by rendering modal windows and caching styles in ShadowDOM. There they are safe from the main page.
-In code this is creating a custom theme `createTheme()` (which can be further extended with other settings) and cache `createCache()` which
-are then used in `ThemeProvider` and `CacheProvider` providers.
-See more details in the `/src/contentScript/Sidebar/Sidebar.tsx` file
+### Components
 
-### 3. Added Drag&Drop widget (icon) that opens the sidebar
+- **Content Script** (`src/contentScript/`)
+  - Extracts YouTube video transcripts from page data
+  - Handles video seeking when clicking timestamps
+  - Only runs on YouTube video pages
 
-The DnD widget is a button-icon that can:
+- **Background Script** (`src/background/`)
+  - Manages transcript storage across tabs
+  - Handles messaging between content script and side panel
+  - Coordinates chat history
 
-- Be moved around the screen and will remember its position on the Y axis
-- Be moved to the left or right side of the screen on the X axis
-- Be closed (minimized) and opened to full size
-- Change the displayed icon and color
+- **Side Panel** (`src/App/VideoChat/`)
+  - Chat interface for asking questions
+  - Displays video info and transcript status
+  - Shows conversation history with timestamp links
 
-Widget files are located in the `/src/contentScript/Sidebar/DraggableWidget/` folder
+- **LLM Integration** (`src/utils/llm.ts`)
+  - Sends transcript and questions to OpenAI
+  - Formats responses with timestamp references
+  - Maintains conversation context
 
-### 4. Dynamic extension script initialization without page reload
+### Transcript Extraction
 
-When installing the extension on already open tabs, the sidebar (and other content scripts) will not work without reloading the page.
-This can affect user behavioral factors, as this may not be obvious to many.
-The user installed the extension, went to the previously opened target page, clicks on the icon of the just-installed
-extension and nothing happens... At this moment the user may decide that the extension doesn't work and remove it.
+The extension uses YouTube's embedded `ytInitialPlayerResponse` data to:
+1. Extract available caption tracks from the page
+2. Select the best track (manual > auto-generated, English preferred)
+3. Fetch the transcript in JSON3 format
+4. Parse into timestamped segments
 
-Therefore, this build adds a mechanism for dynamically connecting extension scripts to the "old" page and no reload is required.
-Managing the scripts described in the `manifest.json` file can be done quite flexibly.
+## Setup
 
-`contentScript` code files that are added to browser tabs when the extension is active are listed in the `content_scripts` section of the `/src/manifest.json` file.
-They are added by the browser to the page when it loads.
+1. Clone the repository
+2. Install dependencies: `npm install` or `yarn install`
+3. Create a `.env.local` file with your OpenAI API key:
+   ```
+   VITE_OPENAI_API_KEY=your_api_key_here
+   ```
+4. Build the extension: `npm run build`
+5. Load the `dist` folder as an unpacked extension in Chrome
 
-Until the page is reloaded, these files are added dynamically in the `/src/background/index.ts` file
+## Development
 
-You need to specify the file required for work. When using only the sidebar - you need to specify only the ordinal
-number of the `src/contentScript/Sidebar/index.tsx` file from the `content_scripts` section of the `/src/manifest.json` file.
-If there are several content script files needed for the extension to work, then specify all necessary files for loading as
-shown in the screenshot.
+```bash
+# Install dependencies
+yarn install
 
-See more detailed comments in the `/src/background/index.ts` file
+# Development mode with hot reload
+yarn dev
 
-### 5. Added handling of extension calls on service pages (files:///, chrome://settings/, etc.)
+# Build for production
+yarn build
 
-Not all pages in the browser allow/are suitable for the sidebar to work in them (service pages), so when calling
-the sidebar, a new tab `empty-tab.html` will open with the main extension code `<App />` placed on it
-
-### 6. Added extension installation handling with welcome page opening
-
-To improve behavioral factors, it's necessary to handle at least the extension installation event.
-This build adds an installation event handler with opening a third-party website page that needs to be specified.
-
-The necessary code is located in the `src/background/index.ts` file in the `chrome.runtime.onInstalled` handler
-
-### 7. Added basic extension localization
-
-When optimizing the extension for publication or adding multilingual support to the extension itself, a localization mechanism is used.
-
-- Added `getI18nText` helper
-- `public/_locales` folder with templates for `en` and `ru` locales
-- `appName` and `shortDesc` fields in `public/_locales` are required, as they generate the extension name and short description in the manifest
-  when working with extension optimization for CWS, others are optional
-
-### 8. Added rating widget
-
-The widget has 2 states.
-
-1. User hasn't left a review and stars are not filled
-2. User left a review and its state is remembered in `chrome.storage`
-
-To configure the widget, it's mandatory to specify the correct values for the `FEEDBACK_FORM_LINK` and `GOOD_REVIEW_LINK` constants
-
-See the `/src/components/Rating/rating-widget.tsx` file
-
-## Installation
-
-1. Check that `Node.js` version >= **14**.
-2. Specify the extension name in `public/_locales/**/messages.json`.
-3. Run `yarn` to install dependencies.
-
-## Developing
-
-Go to the project directory and run the command `yarn dev`
-
-### Add extension locally
-
-1. Activate developer mode 'Developer mode' in Chrome
-2. Click 'Load unpacked', and select the `sidebar-boilerplate/build` folder
-
-## Build
-
-Run the following commands
-
-```shell
-$ yarn build
+# Create zip for distribution
+yarn zip
 ```
 
-Now the contents of the `build` folder are ready to be sent to Chrome Web Store.
+## Usage
 
-You can run the command to get a ready archive from the contents of the `build` folder
+1. Navigate to any YouTube video page
+2. Click the extension icon to open the side panel
+3. Wait for the transcript to load (you'll see a green checkmark)
+4. Start asking questions about the video!
 
-```shell
-$ yarn zip
-```
+### Example Questions
 
----
+- "What is this video about?"
+- "Summarize the main points"
+- "What does the speaker say about [topic]?"
+- "When does [specific concept] get explained?"
+
+## Technologies
+
+- **React** + **TypeScript** - UI components and type safety
+- **Mantine UI** - Component library
+- **OpenAI API** - AI-powered chat responses
+- **Chrome Extension Manifest V3** - Latest extension API
+- **Vite** - Fast build tool
+
+## License
+
+MIT

@@ -1,10 +1,8 @@
 import '@mantine/core/styles.css'
-import { Box, Stack, MantineProvider } from '@mantine/core'
-// import { getI18nText } from '../utils/i18n'
-import RatingWidget from '../components/Rating/rating-widget'
+import { Stack, MantineProvider } from '@mantine/core'
+import VideoChat from './VideoChat/VideoChat'
 
 import './App.css'
-import TabMaven from './TabMaven/TabMaven'
 
 const App = () => {
   return (
@@ -14,11 +12,8 @@ const App = () => {
         defaultRadius: 'md',
       }}
     >
-      <Stack style={{ height: 'calc(100vh - 10px)', padding: '0' }}>
-        {/* <Text size="lg" fw={600}>{getI18nText('appName')}</Text> */}
-        <TabMaven />
-        <Box style={{ flexGrow: 1 }}></Box>
-        <RatingWidget />
+      <Stack style={{ height: '100vh', padding: '0' }} gap={0}>
+        <VideoChat />
       </Stack>
     </MantineProvider>
   )

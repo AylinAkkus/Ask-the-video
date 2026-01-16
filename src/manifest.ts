@@ -29,13 +29,8 @@ export default defineManifest({
     default_path: 'sidepanel.html',
   },
   content_scripts: [
-    // {
-    //   matches: ['http://*/*', 'https://*/*'],
-    //   js: ['src/contentScript/draggableWidget/index.tsx'],
-    //   run_at: 'document_end',
-    // },
     {
-      matches: ['http://*/*', 'https://*/*'],
+      matches: ['https://www.youtube.com/watch*'],
       js: ['src/contentScript/content-script.ts'],
       run_at: 'document_end',
     },
