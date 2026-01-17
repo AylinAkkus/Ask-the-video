@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to VidChat</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fafafa;
+      color: #1a1a1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 600;
+    }
+    .subtitle {
+      color: #666;
+      font-size: 1.1rem;
+      margin-bottom: 36px;
+    }
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .step {
+      text-align: center;
+    }
+    .step-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .step-number {
+      background: #ff4444;
+      color: #fff;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .step-title {
+      font-size: 1.1rem;
+      font-weight: 500;
+      color: #333;
+    }
+    .step img {
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      height: 340px;
+      width: auto;
+    }
+    .arrow {
+      font-size: 3rem;
+      color: #ff4444;
+      font-weight: 300;
+    }
+    .cta {
+      margin-top: 36px;
+    }
+    .cta-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #ff4444;
+      color: #fff;
+      text-decoration: none;
+      padding: 14px 32px;
+      border-radius: 10px;
+      font-size: 1.15rem;
+      font-weight: 500;
+      transition: background 0.2s, transform 0.2s;
+    }
+    .cta-button:hover {
+      background: #e63939;
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="public/img/icon-128.png" alt="VidChat" class="logo">
+    <h1>Welcome to VidChat</h1>
+  </div>
+  <p class="subtitle">Chat with any YouTube video using AI</p>
+
+  <div class="flow">
+    <div class="step">
+      <div class="step-label">
+        <span class="step-number">1</span>
+        <span class="step-title">Click "Ask AI" on any video</span>
+      </div>
+      <img src="public/img/welcome1.png" alt="Click Ask AI button">
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="step">
+      <div class="step-label">
+        <span class="step-number">2</span>
+        <span class="step-title">Ask anything or Summarize</span>
+      </div>
+      <img src="public/img/welcome2.png" alt="Chat sidebar opens">
+    </div>
+  </div>
+
+  <div class="cta">
+    <a href="https://www.youtube.com/watch?v=0K9suVewMYo" target="_blank" class="cta-button">
+      Try it now →
+    </a>
+  </div>
+</body>
+</html>
