@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
 import { WorkerMessageTypes, PageState } from '../../background/types'
 import { TranscriptResult } from '../../contentScript/youtubeTranscript'
-import { streamChatResponse, ChatMessage as LLMChatMessage, ModelId, getModelConfig, hasApiKey } from '../../utils/llm'
+import { streamChatResponse, ChatMessage as LLMChatMessage, ModelId, getModelConfig, hasApiKey, MODELS } from '../../utils/llm'
 import { parseTimestampLinks } from '../../utils/timestampUtils'
-import { storageGetJson, storageSetJson } from '../../utils/localStorage'
+import { storageGetJson, storageSetJson, Provider, hasAnyApiKey as checkHasAnyKey } from '../../utils/localStorage'
 import Settings from '../Settings/Settings'
 import './VideoChat.css'
 
@@ -20,6 +20,7 @@ interface StoredChat {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  transcript?: TranscriptResult // Store transcript for resuming chats
 }
 
 interface VideoInfo {
@@ -52,12 +53,21 @@ const VideoChat = () => {
   const [storedChats, setStoredChats] = useState<StoredChat[]>([])
   const [currentChatId, setCurrentChatId] = useState<string | null>(null)
   const [loadedChatVideoId, setLoadedChatVideoId] = useState<string | null>(null)
+  const [loadedChatTranscript, setLoadedChatTranscript] = useState<TranscriptResult | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [hasCurrentProviderKey, setHasCurrentProviderKey] = useState(true)
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const [apiKeyStatus, setApiKeyStatus] = useState<Record<Provider, boolean>>({
+    openai: false,
+    google: false,
+    anthropic: false,
+  })
+  const [hasAnyKey, setHasAnyKey] = useState<boolean | null>(null) // null = loading
   
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const modelDropdownRef = useRef<HTMLDivElement>(null)
   
   const currentVideoIdRef = useRef<string | null>(null)
   
@@ -78,6 +88,16 @@ const VideoChat = () => {
     const modelConfig = getModelConfig(selectedModel)
     const hasKey = await hasApiKey(modelConfig.provider)
     setHasCurrentProviderKey(hasKey)
+    
+    // Check all providers
+    const [openai, google, anthropic, anyKey] = await Promise.all([
+      hasApiKey('openai'),
+      hasApiKey('google'),
+      hasApiKey('anthropic'),
+      checkHasAnyKey(),
+    ])
+    setApiKeyStatus({ openai, google, anthropic })
+    setHasAnyKey(anyKey)
   }
 
   // Re-check API key when model changes
@@ -90,6 +110,9 @@ const VideoChat = () => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false)
         setShowChatsMenu(false)
+      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -111,6 +134,9 @@ const VideoChat = () => {
     const chatId = currentChatId || `${videoInfo.videoId}-${Date.now()}`
     const existingIndex = chats.findIndex(c => c.id === chatId)
     
+    // Use the active transcript (either from current page or loaded chat)
+    const activeTranscript = loadedChatTranscript || transcript
+    
     const chat: StoredChat = {
       id: chatId,
       videoId: videoInfo.videoId,
@@ -118,6 +144,7 @@ const VideoChat = () => {
       messages,
       createdAt: existingIndex >= 0 ? chats[existingIndex].createdAt : Date.now(),
       updatedAt: Date.now(),
+      transcript: activeTranscript || undefined,
     }
 
     if (existingIndex >= 0) {
@@ -135,6 +162,8 @@ const VideoChat = () => {
   const handleNewChat = () => {
     setChatHistory([])
     setCurrentChatId(null)
+    setLoadedChatVideoId(null)
+    setLoadedChatTranscript(null)
     setShowMenu(false)
   }
 
@@ -146,8 +175,11 @@ const VideoChat = () => {
     
     if (chat.videoId !== videoInfo?.videoId) {
       setLoadedChatVideoId(chat.videoId)
+      // Use the stored transcript for continuing the chat
+      setLoadedChatTranscript(chat.transcript || null)
     } else {
       setLoadedChatVideoId(null)
+      setLoadedChatTranscript(null)
     }
   }
 
@@ -160,6 +192,25 @@ const VideoChat = () => {
     
     // Re-check API key status
     await checkApiKeyStatus()
+  }
+
+  const handleModelSelect = async (modelId: ModelId) => {
+    setSelectedModel(modelId)
+    await storageSetJson(STORAGE_KEY_MODEL, modelId)
+    setShowModelDropdown(false)
+  }
+
+  // Group models by provider
+  const modelsByProvider = MODELS.reduce((acc, model) => {
+    if (!acc[model.provider]) acc[model.provider] = []
+    acc[model.provider].push(model)
+    return acc
+  }, {} as Record<Provider, typeof MODELS>)
+
+  const providerLabels: Record<Provider, string> = {
+    openai: 'OpenAI',
+    google: 'Google AI',
+    anthropic: 'Anthropic',
   }
 
   useEffect(() => {
@@ -193,6 +244,7 @@ const VideoChat = () => {
           setTranscript(null)
           setErrorMessage(null)
           setLoadedChatVideoId(null)
+          setLoadedChatTranscript(null)
           
           if (newVideoId) {
             setVideoInfo({
@@ -212,6 +264,7 @@ const VideoChat = () => {
           setTranscript(null)
           setVideoInfo(null)
           setLoadedChatVideoId(null)
+          setLoadedChatTranscript(null)
           break
           
         case WorkerMessageTypes.transcriptLoaded:
@@ -227,6 +280,7 @@ const VideoChat = () => {
           setPageState('ready')
           setErrorMessage(null)
           setLoadedChatVideoId(null)
+          setLoadedChatTranscript(null)
           
           if (data.videoId) {
             setVideoInfo({
@@ -249,6 +303,7 @@ const VideoChat = () => {
           
           setPageState(tabState.pageState || 'no_video')
           setLoadedChatVideoId(null)
+          setLoadedChatTranscript(null)
           
           if (tabState.transcript) {
             setTranscript(tabState.transcript)
@@ -335,7 +390,9 @@ const VideoChat = () => {
   }, [question])
 
   const sendMessage = async (content: string) => {
-    if (!content.trim() || !transcript?.transcript || isProcessing) return
+    // Use loaded chat transcript if viewing a past chat, otherwise use current page transcript
+    const activeTranscript = loadedChatTranscript || transcript
+    if (!content.trim() || !activeTranscript?.transcript || isProcessing) return
 
     const userMessage: ChatMessage = {
       role: 'user',
@@ -357,14 +414,14 @@ const VideoChat = () => {
       }))
 
       const response = await streamChatResponse(
-        transcript.transcript,
+        activeTranscript.transcript,
         llmHistory,
         userMessage.content,
         (_chunk, fullText) => {
           setIsThinking(false)
           setStreamingContent(fullText)
         },
-        transcript.metadata,
+        activeTranscript.metadata,
         selectedModel
       )
 
@@ -418,64 +475,110 @@ const VideoChat = () => {
 
   const Header = () => (
     <div className="vc-header">
-      <button className="vc-icon-btn" onClick={handleNewChat} title="New chat">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 20h9" />
-          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-        </svg>
-      </button>
-
-      <button className="vc-icon-btn" onClick={() => setShowSettings(true)} title="Settings">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      </button>
-      
-      <div className="vc-menu-container" ref={menuRef}>
-        <button className="vc-icon-btn" onClick={() => setShowMenu(!showMenu)} title="Menu">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="12" cy="6" r="2" />
-            <circle cx="12" cy="12" r="2" />
-            <circle cx="12" cy="18" r="2" />
+      {/* Model dropdown on the left */}
+      <div className="vc-model-dropdown-container" ref={modelDropdownRef}>
+        <button 
+          className="vc-model-dropdown-trigger" 
+          onClick={() => setShowModelDropdown(!showModelDropdown)}
+        >
+          <span>{currentModelConfig.name}</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
         
-        {showMenu && (
-          <div className="vc-menu">
-            <button 
-              className="vc-menu-item"
-              onClick={() => setShowChatsMenu(!showChatsMenu)}
-            >
-              <span>Switch Chat</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </button>
-
-            {/* Chats submenu */}
-            {showChatsMenu && (
-              <div className="vc-submenu vc-submenu-chats">
-                {storedChats.length === 0 ? (
-                  <div className="vc-menu-empty">No past chats</div>
-                ) : (
-                  storedChats.slice(0, 10).map((chat) => (
-                    <button
-                      key={chat.id}
-                      className={`vc-menu-item vc-chat-item ${currentChatId === chat.id ? 'vc-menu-item-active' : ''}`}
-                      onClick={() => handleLoadChat(chat)}
-                    >
-                      <div className="vc-chat-item-content">
-                        <span className="vc-chat-item-title">{chat.videoTitle.slice(0, 30)}{chat.videoTitle.length > 30 ? '...' : ''}</span>
-                        <span className="vc-chat-item-preview">{formatChatPreview(chat)}</span>
-                      </div>
-                    </button>
-                  ))
-                )}
+        {showModelDropdown && (
+          <div className="vc-model-dropdown">
+            {(Object.keys(modelsByProvider) as Provider[]).map((provider) => (
+              <div key={provider} className="vc-model-dropdown-group">
+                <div className="vc-model-dropdown-group-header">
+                  <span>{providerLabels[provider]}</span>
+                  {!apiKeyStatus[provider] && (
+                    <span className="vc-model-dropdown-warning" title="API key not configured">!</span>
+                  )}
+                </div>
+                {modelsByProvider[provider].map((model) => (
+                  <button
+                    key={model.id}
+                    className={`vc-model-dropdown-item ${selectedModel === model.id ? 'vc-model-dropdown-item-active' : ''} ${!apiKeyStatus[provider] ? 'vc-model-dropdown-item-disabled' : ''}`}
+                    onClick={() => apiKeyStatus[provider] && handleModelSelect(model.id)}
+                    disabled={!apiKeyStatus[provider]}
+                  >
+                    <span>{model.name}</span>
+                    {selectedModel === model.id && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
               </div>
-            )}
+            ))}
           </div>
         )}
+      </div>
+
+      {/* Right side buttons */}
+      <div className="vc-header-actions">
+        <button className="vc-icon-btn" onClick={handleNewChat} title="New chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+        </button>
+
+        <button className="vc-icon-btn" onClick={() => setShowSettings(true)} title="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+        
+        <div className="vc-menu-container" ref={menuRef}>
+          <button className="vc-icon-btn" onClick={() => setShowMenu(!showMenu)} title="Menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="6" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="12" cy="18" r="2" />
+            </svg>
+          </button>
+          
+          {showMenu && (
+            <div className="vc-menu">
+              <button 
+                className="vc-menu-item"
+                onClick={() => setShowChatsMenu(!showChatsMenu)}
+              >
+                <span>Switch Chat</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+
+              {/* Chats submenu */}
+              {showChatsMenu && (
+                <div className="vc-submenu vc-submenu-chats">
+                  {storedChats.length === 0 ? (
+                    <div className="vc-menu-empty">No past chats</div>
+                  ) : (
+                    storedChats.slice(0, 10).map((chat) => (
+                      <button
+                        key={chat.id}
+                        className={`vc-menu-item vc-chat-item ${currentChatId === chat.id ? 'vc-menu-item-active' : ''}`}
+                        onClick={() => handleLoadChat(chat)}
+                      >
+                        <div className="vc-chat-item-content">
+                          <span className="vc-chat-item-title">{chat.videoTitle.slice(0, 30)}{chat.videoTitle.length > 30 ? '...' : ''}</span>
+                          <span className="vc-chat-item-preview">{formatChatPreview(chat)}</span>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -485,8 +588,75 @@ const VideoChat = () => {
     return <Settings onBack={handleCloseSettings} />
   }
 
-  const canSend = pageState === 'ready' && transcript?.transcript && !isProcessing && !loadedChatVideoId && hasCurrentProviderKey
-  const isTranscriptLoading = pageState === 'loading'
+  // Loading state while checking API keys
+  if (hasAnyKey === null) {
+    return (
+      <div className="vc-container">
+        <div className="vc-center-content">
+          <div className="vc-loader" />
+        </div>
+      </div>
+    )
+  }
+
+  // Show setup screen if no API keys configured
+  if (hasAnyKey === false) {
+    return (
+      <div className="vc-container">
+        <div className="vc-setup-screen">
+          <div className="vc-setup-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+            </svg>
+          </div>
+          <h1>Welcome to VidChat</h1>
+          <p className="vc-setup-subtitle">
+            Chat with any YouTube video using AI. To get started, add an API key from one of these providers:
+          </p>
+          
+          <div className="vc-setup-providers">
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="vc-setup-provider">
+              <span className="vc-setup-provider-name">Google AI</span>
+              <span className="vc-setup-provider-badge">Free tier</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+              </svg>
+            </a>
+            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="vc-setup-provider">
+              <span className="vc-setup-provider-name">OpenAI</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+              </svg>
+            </a>
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="vc-setup-provider">
+              <span className="vc-setup-provider-name">Anthropic</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+              </svg>
+            </a>
+          </div>
+
+          <button className="vc-setup-btn" onClick={() => setShowSettings(true)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            Enter API Key
+          </button>
+          
+          <p className="vc-setup-note">
+            Your keys are stored locally and never sent to our servers.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Can send if we have a transcript (either from current page or loaded past chat)
+  const activeTranscript = loadedChatTranscript || transcript
+  const hasActiveTranscript = !!activeTranscript?.transcript
+  const canSend = hasActiveTranscript && !isProcessing && hasCurrentProviderKey
+  const isTranscriptLoading = pageState === 'loading' && !loadedChatTranscript
   const isViewingPastChat = loadedChatVideoId !== null && loadedChatVideoId !== videoInfo?.videoId
 
   // Error state (full screen)
@@ -550,10 +720,14 @@ const VideoChat = () => {
         </div>
       )}
       
-      {/* Past chat warning banner */}
+      {/* Past chat info banner */}
       {isViewingPastChat && (
-        <div className="vc-warning-banner">
-          <span>Viewing past chat. Navigate to this video to continue.</span>
+        <div className={`vc-info-banner ${loadedChatTranscript ? '' : 'vc-warning-banner'}`}>
+          <span>
+            {loadedChatTranscript 
+              ? 'Viewing past chat. You can continue this conversation.'
+              : 'Viewing past chat without transcript. Navigate to video to continue.'}
+          </span>
         </div>
       )}
       
@@ -624,7 +798,7 @@ const VideoChat = () => {
 
       {/* Input area */}
       <div className="vc-input-area">
-        <div className={`vc-context-pill ${isTranscriptLoading ? 'vc-context-pill-loading' : ''} ${isViewingPastChat ? 'vc-context-pill-warning' : ''}`}>
+        <div className={`vc-context-pill ${isTranscriptLoading ? 'vc-context-pill-loading' : ''} ${isViewingPastChat && !loadedChatTranscript ? 'vc-context-pill-warning' : ''}`}>
           <span className="vc-context-icon">{isTranscriptLoading ? '⏳' : '▶'}</span>
           <span className="vc-context-text" title={displayTitle}>
             {displayTitle.length > 35 ? displayTitle.slice(0, 35) + '...' : displayTitle}
@@ -640,14 +814,14 @@ const VideoChat = () => {
                 ? "Add API key in Settings to chat..." 
                 : isTranscriptLoading 
                   ? "Type your question while transcript loads..." 
-                  : isViewingPastChat 
-                    ? "Navigate to video to chat" 
+                  : isViewingPastChat && !loadedChatTranscript
+                    ? "Navigate to video to chat (no stored transcript)" 
                     : "Ask anything..."
             }
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isProcessing || isViewingPastChat || !hasCurrentProviderKey}
+            disabled={isProcessing || !hasCurrentProviderKey || (isViewingPastChat && !loadedChatTranscript)}
             rows={1}
           />
           <button
@@ -659,8 +833,8 @@ const VideoChat = () => {
                 ? "API key required" 
                 : isTranscriptLoading 
                   ? "Waiting for transcript..." 
-                  : isViewingPastChat 
-                    ? "Navigate to video first" 
+                  : !hasActiveTranscript
+                    ? "No transcript available" 
                     : "Send message"
             }
           >

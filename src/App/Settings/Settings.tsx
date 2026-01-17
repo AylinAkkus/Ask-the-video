@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getApiKeys, setApiKey, ApiKeys, Provider, storageGetJson, storageSetJson } from '../../utils/localStorage'
-import { MODELS, ModelId, getModelConfig, hasApiKey, autoSelectModel } from '../../utils/llm'
+import { getApiKeys, setApiKey, ApiKeys, Provider } from '../../utils/localStorage'
 import './Settings.css'
 
 interface SettingsProps {
@@ -39,21 +38,6 @@ const PROVIDERS: ProviderConfig[] = [
   },
 ]
 
-const PROVIDER_LABELS: Record<Provider, string> = {
-  openai: 'OpenAI',
-  google: 'Google AI',
-  anthropic: 'Anthropic',
-}
-
-// Group models by provider
-const MODELS_BY_PROVIDER = MODELS.reduce((acc, model) => {
-  if (!acc[model.provider]) acc[model.provider] = []
-  acc[model.provider].push(model)
-  return acc
-}, {} as Record<Provider, typeof MODELS>)
-
-const STORAGE_KEY_MODEL = 'ask-video-model'
-
 const Settings = ({ onBack }: SettingsProps) => {
   const [keys, setKeys] = useState<ApiKeys>({})
   const [saving, setSaving] = useState<Provider | null>(null)
@@ -63,47 +47,18 @@ const Settings = ({ onBack }: SettingsProps) => {
     anthropic: false,
   })
   const [version, setVersion] = useState<string>('1.0.0')
-  const [selectedModel, setSelectedModel] = useState<ModelId>('gemini-3-flash-preview')
-  const [apiKeyStatus, setApiKeyStatus] = useState<Record<Provider, boolean>>({
-    openai: false,
-    google: false,
-    anthropic: false,
-  })
 
   useEffect(() => {
     const init = async () => {
-      const keys = await getApiKeys()
-      setKeys(keys)
+      const apiKeys = await getApiKeys()
+      setKeys(apiKeys)
       
       // Get version from manifest
       chrome.runtime.getManifest && setVersion(chrome.runtime.getManifest().version)
-      
-      // Load selected model
-      const model = await storageGetJson<ModelId>(STORAGE_KEY_MODEL)
-      if (model) setSelectedModel(model)
-      
-      // Check API key status
-      await checkApiKeyStatus()
-      
-      // Auto-select model if current one is unavailable
-      const autoSelected = await autoSelectModel(model || undefined)
-      if (autoSelected && autoSelected !== model) {
-        setSelectedModel(autoSelected)
-        await storageSetJson(STORAGE_KEY_MODEL, autoSelected)
-      }
     }
     
     init()
   }, [])
-
-  const checkApiKeyStatus = async () => {
-    const [openai, google, anthropic] = await Promise.all([
-      hasApiKey('openai'),
-      hasApiKey('google'),
-      hasApiKey('anthropic'),
-    ])
-    setApiKeyStatus({ openai, google, anthropic })
-  }
 
   const handleSave = async (provider: Provider, value: string) => {
     setSaving(provider)
@@ -113,25 +68,10 @@ const Settings = ({ onBack }: SettingsProps) => {
       [provider]: value.trim() || undefined,
     }))
     setSaving(null)
-    
-    // Re-check API key status
-    await checkApiKeyStatus()
-    
-    // Auto-select model if needed
-    const newModel = await autoSelectModel(selectedModel)
-    if (newModel && newModel !== selectedModel) {
-      setSelectedModel(newModel)
-      await storageSetJson(STORAGE_KEY_MODEL, newModel)
-    }
   }
 
   const toggleShowKey = (provider: Provider) => {
     setShowKey((prev) => ({ ...prev, [provider]: !prev[provider] }))
-  }
-
-  const handleModelChange = async (model: ModelId) => {
-    setSelectedModel(model)
-    await storageSetJson(STORAGE_KEY_MODEL, model)
   }
 
   return (
@@ -146,49 +86,6 @@ const Settings = ({ onBack }: SettingsProps) => {
       </div>
 
       <div className="settings-content">
-        <div className="settings-section">
-          <h2>Model Selection</h2>
-          <p className="settings-description">
-            Choose the AI model you want to use for chatting with videos.
-          </p>
-
-          <div className="settings-models">
-            {(Object.keys(MODELS_BY_PROVIDER) as Provider[]).map((provider) => (
-              <div key={provider} className="settings-model-group">
-                <div className="settings-model-group-header">
-                  <span>{PROVIDER_LABELS[provider]}</span>
-                  {!apiKeyStatus[provider] && (
-                    <span className="settings-model-group-warning" title="API key not configured">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="8" x2="12" y2="12" />
-                        <line x1="12" y1="16" x2="12.01" y2="16" />
-                      </svg>
-                    </span>
-                  )}
-                </div>
-                <div className="settings-model-list">
-                  {MODELS_BY_PROVIDER[provider].map((model) => (
-                    <button
-                      key={model.id}
-                      className={`settings-model-button ${selectedModel === model.id ? 'settings-model-button-active' : ''} ${!apiKeyStatus[provider] ? 'settings-model-button-disabled' : ''}`}
-                      onClick={() => handleModelChange(model.id)}
-                      disabled={!apiKeyStatus[provider]}
-                    >
-                      <span>{model.name}</span>
-                      {selectedModel === model.id && (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M20 6L9 17l-5-5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
         <div className="settings-section">
           <h2>API Keys</h2>
           <p className="settings-description">
@@ -257,7 +154,7 @@ const Settings = ({ onBack }: SettingsProps) => {
         <div className="settings-section settings-info">
           <h2>About</h2>
           <p>
-            VidChat lets you chat with YouTube videos using AI. Your API keys are stored locally and never sent to our servers.
+            VidChat lets you chat with YouTube videos using AI. Your API keys are stored locally and never sent to our servers. We don't even have any servers.
           </p>
           <p className="settings-version">Version {version}</p>
         </div>

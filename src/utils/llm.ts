@@ -91,11 +91,6 @@ When referencing timestamps:
 - Include the timestamp in brackets like [2:34] when citing specific parts of the video
 - You can reference multiple timestamps if relevant
 - Make timestamp references clickable by using the exact format [MM:SS]
-
-Example responses:
-- "The main topic is discussed at [1:23], where the speaker explains..."
-- "According to the video at [5:45], the three key points are..."
-- "This concept is introduced around [0:30] and elaborated further at [3:15]..."
 `;
 
 interface VideoMetadata {

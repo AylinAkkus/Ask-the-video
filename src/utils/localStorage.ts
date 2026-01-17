@@ -55,3 +55,8 @@ export const getApiKey = async (provider: Provider): Promise<string | null> => {
   const keys = await getApiKeys()
   return keys[provider] || null
 }
+
+export const hasAnyApiKey = async (): Promise<boolean> => {
+  const keys = await getApiKeys()
+  return !!(keys.openai || keys.google || keys.anthropic)
+}

@@ -9,47 +9,40 @@ let infoCardObserver: MutationObserver | null = null
 
 const ONBOARDING_STORAGE_KEY = 'vidchat-has-seen-hint'
 
-// Selectors for YouTube's info overlays that appear in top-right
-const INFO_OVERLAY_SELECTORS = [
-  '.ytp-ce-element',        // Card elements  
-  '.ytp-ce-covering-overlay',
-  '.ytp-paid-content-overlay',
-  '.ytp-cards-teaser',      // Cards teaser (the "i" icon)
-]
+// Debug flag - set to true to see what's being detected
+const DEBUG_INFO_OVERLAY = false
 
 /**
- * Check if any info overlay is visible in the player's top-right area
+ * Check if the YouTube info cards button is visible
+ * This is the "i" button that appears in the top-right of some videos
  */
 function isInfoOverlayVisible(): boolean {
-  const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player')
-  if (!player) return false
-  
-  const playerRect = player.getBoundingClientRect()
-  // Define the "danger zone" - top-right corner where our button lives
-  const dangerZoneTop = playerRect.top + 60 // Below our button area
-  const dangerZoneRight = playerRect.right - 100 // Right side
-  
-  for (const selector of INFO_OVERLAY_SELECTORS) {
-    const el = document.querySelector(selector) as HTMLElement
-    if (!el) continue
+  const cardsButton = document.querySelector('.ytp-cards-button') as HTMLElement
+  if (cardsButton) {
+    const style = getComputedStyle(cardsButton)
+    const rect = cardsButton.getBoundingClientRect()
     
-    // Check actual rendered dimensions - element must have real size
-    const rect = el.getBoundingClientRect()
-    if (rect.width < 10 || rect.height < 10) continue
+    if (DEBUG_INFO_OVERLAY) {
+      console.log('[VidChat] Cards button check:', {
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+        width: rect.width,
+        height: rect.height,
+        ariaHidden: cardsButton.getAttribute('aria-hidden'),
+        hidden: cardsButton.hidden,
+      })
+    }
     
-    // Check CSS visibility
-    const style = getComputedStyle(el)
-    if (style.display === 'none' || style.visibility === 'hidden') continue
-    if (parseFloat(style.opacity) < 0.1) continue
+    // Check multiple hiding mechanisms YouTube might use
+    if (style.display === 'none') return false
+    if (style.visibility === 'hidden') return false
+    if (rect.width === 0 || rect.height === 0) return false
+    if (cardsButton.getAttribute('aria-hidden') === 'true') return false
     
-    // Check if element is actually in the top-right corner of the player
-    // Element must be within the danger zone to count as overlapping
-    const isInTopRightArea = rect.top < dangerZoneTop && rect.right > dangerZoneRight
-    if (!isInTopRightArea) continue
-    
-    // Element is actually visible with real dimensions in the top-right
     return true
   }
+  
   return false
 }
 
@@ -62,6 +55,10 @@ function updateButtonPosition() {
   const hasOverlay = isInfoOverlayVisible()
   // Move down when overlay is present (below the info button)
   askAiButton.style.top = hasOverlay ? '56px' : '16px'
+  
+  if (DEBUG_INFO_OVERLAY) {
+    console.log('[VidChat] Button position update:', hasOverlay ? '56px' : '16px')
+  }
 }
 
 /**
@@ -85,7 +82,16 @@ function startInfoOverlayObserver() {
   })
   
   // Also check periodically since some changes might be missed
-  setInterval(updateButtonPosition, 1000)
+  // Check frequently for the first 10 seconds (info button can appear late)
+  let checkCount = 0
+  const fastInterval = setInterval(() => {
+    updateButtonPosition()
+    checkCount++
+    if (checkCount > 20) clearInterval(fastInterval) // Stop fast polling after ~10s
+  }, 500)
+  
+  // Then check less frequently
+  setInterval(updateButtonPosition, 2000)
 }
 
 /**
