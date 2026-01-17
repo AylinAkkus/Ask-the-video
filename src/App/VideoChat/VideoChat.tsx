@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
 import { WorkerMessageTypes, PageState } from '../../background/types'
 import { TranscriptResult } from '../../contentScript/youtubeTranscript'
-import { streamChatResponse, ChatMessage as LLMChatMessage, MODELS, ModelId, getModelConfig, hasApiKey } from '../../utils/llm'
+import { streamChatResponse, ChatMessage as LLMChatMessage, ModelId, getModelConfig, hasApiKey } from '../../utils/llm'
 import { parseTimestampLinks } from '../../utils/timestampUtils'
-import { storageGetJson, storageSetJson, Provider } from '../../utils/localStorage'
+import { storageGetJson, storageSetJson } from '../../utils/localStorage'
 import Settings from '../Settings/Settings'
 import './VideoChat.css'
 
@@ -36,19 +36,6 @@ const SUGGESTED_PROMPTS = [
   { label: 'Main takeaway', prompt: 'What is the main takeaway from this video?' },
 ]
 
-const PROVIDER_LABELS: Record<Provider, string> = {
-  openai: 'OpenAI',
-  google: 'Google',
-  anthropic: 'Anthropic',
-}
-
-// Group models by provider
-const MODELS_BY_PROVIDER = MODELS.reduce((acc, model) => {
-  if (!acc[model.provider]) acc[model.provider] = []
-  acc[model.provider].push(model)
-  return acc
-}, {} as Record<Provider, typeof MODELS>)
-
 const VideoChat = () => {
   const [pageState, setPageState] = useState<PageState>('loading')
   const [transcript, setTranscript] = useState<TranscriptResult | null>(null)
@@ -60,18 +47,13 @@ const VideoChat = () => {
   const [isThinking, setIsThinking] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const [showMenu, setShowMenu] = useState(false)
-  const [showModelMenu, setShowModelMenu] = useState(false)
   const [showChatsMenu, setShowChatsMenu] = useState(false)
   const [selectedModel, setSelectedModel] = useState<ModelId>('gemini-3-flash-preview')
   const [storedChats, setStoredChats] = useState<StoredChat[]>([])
   const [currentChatId, setCurrentChatId] = useState<string | null>(null)
   const [loadedChatVideoId, setLoadedChatVideoId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [apiKeyStatus, setApiKeyStatus] = useState<Record<Provider, boolean>>({
-    openai: false,
-    google: false,
-    anthropic: false,
-  })
+  const [hasCurrentProviderKey, setHasCurrentProviderKey] = useState(true)
   
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -83,16 +65,6 @@ const VideoChat = () => {
     currentVideoIdRef.current = videoInfo?.videoId || null
   }, [videoInfo?.videoId])
 
-  // Check API key status on mount and when returning from settings
-  const checkApiKeyStatus = async () => {
-    const [openai, google, anthropic] = await Promise.all([
-      hasApiKey('openai'),
-      hasApiKey('google'),
-      hasApiKey('anthropic'),
-    ])
-    setApiKeyStatus({ openai, google, anthropic })
-  }
-
   useEffect(() => {
     storageGetJson<ModelId>(STORAGE_KEY_MODEL).then((model) => {
       if (model) setSelectedModel(model)
@@ -101,11 +73,22 @@ const VideoChat = () => {
     checkApiKeyStatus()
   }, [])
 
+  // Check if current model has API key
+  const checkApiKeyStatus = async () => {
+    const modelConfig = getModelConfig(selectedModel)
+    const hasKey = await hasApiKey(modelConfig.provider)
+    setHasCurrentProviderKey(hasKey)
+  }
+
+  // Re-check API key when model changes
+  useEffect(() => {
+    checkApiKeyStatus()
+  }, [selectedModel])
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false)
-        setShowModelMenu(false)
         setShowChatsMenu(false)
       }
     }
@@ -149,13 +132,6 @@ const VideoChat = () => {
     setStoredChats(trimmedChats)
   }
 
-  const handleModelChange = async (model: ModelId) => {
-    setSelectedModel(model)
-    await storageSetJson(STORAGE_KEY_MODEL, model)
-    setShowModelMenu(false)
-    setShowMenu(false)
-  }
-
   const handleNewChat = () => {
     setChatHistory([])
     setCurrentChatId(null)
@@ -175,13 +151,13 @@ const VideoChat = () => {
     }
   }
 
-  const handleOpenSettings = () => {
-    setShowMenu(false)
-    setShowSettings(true)
-  }
-
   const handleCloseSettings = () => {
     setShowSettings(false)
+    // Reload selected model in case it changed in settings
+    storageGetJson<ModelId>(STORAGE_KEY_MODEL).then((model) => {
+      if (model) setSelectedModel(model)
+    })
+    // Re-check API key status
     checkApiKeyStatus()
   }
 
@@ -437,9 +413,7 @@ const VideoChat = () => {
     return firstUserMsg?.content.slice(0, 40) + (firstUserMsg && firstUserMsg.content.length > 40 ? '...' : '') || 'Empty chat'
   }
 
-  // Check if current model's provider has API key
   const currentModelConfig = getModelConfig(selectedModel)
-  const hasCurrentProviderKey = apiKeyStatus[currentModelConfig.provider]
 
   const Header = () => (
     <div className="vc-header">
@@ -450,7 +424,7 @@ const VideoChat = () => {
         </svg>
       </button>
 
-      <button className="vc-icon-btn" onClick={handleOpenSettings} title="Settings">
+      <button className="vc-icon-btn" onClick={() => setShowSettings(true)} title="Settings">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -470,70 +444,13 @@ const VideoChat = () => {
           <div className="vc-menu">
             <button 
               className="vc-menu-item"
-              onClick={() => { setShowModelMenu(!showModelMenu); setShowChatsMenu(false) }}
-            >
-              <span className="vc-menu-item-label">
-                {MODELS.find(m => m.id === selectedModel)?.name}
-                {!hasCurrentProviderKey && <span className="vc-menu-item-warning">!</span>}
-              </span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </button>
-            
-            <button 
-              className="vc-menu-item"
-              onClick={() => { setShowChatsMenu(!showChatsMenu); setShowModelMenu(false) }}
+              onClick={() => setShowChatsMenu(!showChatsMenu)}
             >
               <span>Switch Chat</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M9 18l6-6-6-6" />
               </svg>
             </button>
-
-            <button className="vc-menu-item" onClick={handleOpenSettings}>
-              <span>Settings</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
-
-            {/* Model submenu - grouped by provider */}
-            {showModelMenu && (
-              <div className="vc-submenu vc-submenu-models">
-                {(Object.keys(MODELS_BY_PROVIDER) as Provider[]).map((provider) => (
-                  <div key={provider} className="vc-model-group">
-                    <div className="vc-model-group-header">
-                      <span>{PROVIDER_LABELS[provider]}</span>
-                      {!apiKeyStatus[provider] && (
-                        <span className="vc-model-group-warning" title="API key not configured">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="8" x2="12" y2="12" />
-                            <line x1="12" y1="16" x2="12.01" y2="16" />
-                          </svg>
-                        </span>
-                      )}
-                    </div>
-                    {MODELS_BY_PROVIDER[provider].map((model) => (
-                      <button
-                        key={model.id}
-                        className={`vc-menu-item vc-model-item ${selectedModel === model.id ? 'vc-menu-item-active' : ''} ${!apiKeyStatus[provider] ? 'vc-menu-item-disabled' : ''}`}
-                        onClick={() => handleModelChange(model.id)}
-                      >
-                        {model.name}
-                        {selectedModel === model.id && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M20 6L9 17l-5-5" />
-                          </svg>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Chats submenu */}
             {showChatsMenu && (
@@ -613,11 +530,11 @@ const VideoChat = () => {
       
       {/* API Key missing banner */}
       {!hasCurrentProviderKey && (
-        <div className="vc-api-key-banner" onClick={handleOpenSettings}>
+        <div className="vc-api-key-banner" onClick={() => setShowSettings(true)}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
           </svg>
-          <span>Add {PROVIDER_LABELS[currentModelConfig.provider]} API key to use {currentModelConfig.name}</span>
+          <span>Add API key for {currentModelConfig.name} in Settings</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 18l6-6-6-6" />
           </svg>
