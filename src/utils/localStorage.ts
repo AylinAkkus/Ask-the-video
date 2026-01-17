@@ -1,5 +1,7 @@
 /* eslint-disable no-undef */
-import { isChromeExtension } from './utils'
+
+const isChromeExtension = () =>
+  typeof chrome !== 'undefined' && !!chrome.storage?.local
 
 export const storageSet = (key: string, value: string | number | boolean) => {
   if (isChromeExtension()) {
@@ -7,6 +9,17 @@ export const storageSet = (key: string, value: string | number | boolean) => {
   } else {
     localStorage.setItem(key, value.toString())
   }
+}
+
+export const storageSetJson = <T>(key: string, value: T): Promise<void> => {
+  return new Promise((resolve) => {
+    if (isChromeExtension()) {
+      chrome.storage.local.set({ [key]: value }, resolve)
+    } else {
+      localStorage.setItem(key, JSON.stringify(value))
+      resolve()
+    }
+  })
 }
 
 export const storageGet = (key: string, callback: (arg: any) => void) => {
@@ -24,6 +37,19 @@ export const storageGet = (key: string, callback: (arg: any) => void) => {
       callback(value)
     }
   }
+}
+
+export const storageGetJson = <T>(key: string): Promise<T | null> => {
+  return new Promise((resolve) => {
+    if (isChromeExtension()) {
+      chrome.storage.local.get(key, (result) => {
+        resolve(result[key] ?? null)
+      })
+    } else {
+      const value = localStorage.getItem(key)
+      resolve(value ? JSON.parse(value) : null)
+    }
+  })
 }
 
 export const storageWatch = (key: string, callback: (data: string) => any) => {

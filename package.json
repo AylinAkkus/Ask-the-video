@@ -1,13 +1,13 @@
 {
-  "name": "TabMaven",
+  "name": "ask-the-video",
   "version": "0.0.1",
   "author": "no one",
   "type": "module",
   "license": "MIT",
   "keywords": [
-    "TabMaven",
-    "TabMaven Extension",
-    "TabMaven Chrome Extension"
+    "youtube",
+    "video chat",
+    "chrome extension"
   ],
   "engines": {
     "node": ">=22"

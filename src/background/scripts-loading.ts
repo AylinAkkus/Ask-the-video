@@ -1,3 +1,5 @@
+import { WorkerMessageTypes } from './types'
+
 /**
  * Simple controller for working with browser tabs
  */
@@ -62,6 +64,18 @@ class TabsController {
 
 const tabsController: TabsController = new TabsController()
 
+// Export for use by other modules
+export { tabsController }
+
+/**
+ * Listen for content script init message to track auto-injected scripts
+ */
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (message.type === WorkerMessageTypes.sidebarLoaded && sender.tab?.id) {
+    tabsController.setTabContentScriptLoaded(sender.tab.id)
+  }
+})
+
 /**
  * Get the name of the contentScript file that will be dynamically loaded on the page when
  * the extension is already installed, but the current tab hasn't been reloaded.
@@ -80,21 +94,41 @@ tabsController.setContentScriptFiles(contentScriptFile1)
 // tabsController.setContentScriptFiles(contentScriptFile2)
 
 /**
- * Handle browser tab activation.
- * If TabsController doesn't know anything about the browser tab that was activated, it means
- * that it hasn't sent messages from contentScript. This situation occurs when the extension is installed,
- * but not all "old tabs" are updated. Therefore, so that the user doesn't worry, we dynamically load
- * the necessary contentScript files on the activated tab, except for tabs where we can't do this,
- * for example chromewebstore.google.com, chrome://settings/, etc.
+ * Check if URL is a YouTube page where we want our content script
+ */
+const isYouTubeUrl = (url: string | undefined): boolean => {
+  return !!url && url.includes('youtube.com')
+}
+
+/**
+ * Inject content script if needed for a given tab
+ */
+const injectIfNeeded = async (tabId: number, url: string | undefined) => {
+  if (!isYouTubeUrl(url)) return
+  if (tabsController.isTabContentScriptLoaded(tabId)) return
+  
+  try {
+    await tabsController.injectContentScriptFilesToTab(tabId)
+  } catch (e) {
+    // Injection can fail on restricted pages, that's OK
+  }
+}
+
+/**
+ * Handle browser tab activation (switching between tabs)
  */
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const tab = await chrome.tabs.get(activeInfo.tabId)
+  await injectIfNeeded(activeInfo.tabId, tab.url)
+})
 
-  if (tab.url && tab.url.includes('http') && !tab.url.includes('chromewebstore.google.com')) {
-    const tabId: number = activeInfo.tabId
-
-    if (!tabsController.isTabContentScriptLoaded(tabId)) {
-      await tabsController.injectContentScriptFilesToTab(tabId)
-    }
+/**
+ * Handle tab URL changes (SPA navigation, including YouTube)
+ * This catches when user navigates within YouTube without full page reload
+ */
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // Only act when navigation is complete
+  if (changeInfo.status === 'complete') {
+    await injectIfNeeded(tabId, tab.url)
   }
 })

@@ -59,7 +59,7 @@ The extension uses YouTube's embedded `ytInitialPlayerResponse` data to:
    VITE_OPENAI_API_KEY=your_api_key_here
    ```
 4. Build the extension: `npm run build`
-5. Load the `dist` folder as an unpacked extension in Chrome
+5. Load the `build` folder as an unpacked extension in Chrome
 
 ## Development
 

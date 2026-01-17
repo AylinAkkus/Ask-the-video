@@ -1,12 +1,12 @@
 {
   "appName": {
-    "message": "TabMaven"
+    "message": "VidChat"
   },
   "shortDesc": {
-    "message": "TabMaven"
+    "message": "Chat with any YouTube video"
   },
   "storeDesc": {
-    "message": "TabMaven"
+    "message": "VidChat lets you ask questions about any YouTube video and get instant AI-powered answers based on the transcript."
   },
   "rateUsWidget": {
     "message": "Rate us"

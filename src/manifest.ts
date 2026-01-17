@@ -30,7 +30,7 @@ export default defineManifest({
   },
   content_scripts: [
     {
-      matches: ['https://www.youtube.com/watch*'],
+      matches: ['https://www.youtube.com/*'],
       js: ['src/contentScript/content-script.ts'],
       run_at: 'document_end',
     },

@@ -12,6 +12,13 @@ export interface ChatResponse {
   errorMessage?: string;
 }
 
+export type ModelId = 'gpt-5.2' | 'gpt-5-mini';
+
+export const MODELS: { id: ModelId; name: string }[] = [
+  { id: 'gpt-5.2', name: 'GPT-5.2' },
+  { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
+];
+
 const getClient = () => {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
@@ -82,31 +89,19 @@ interface VideoMetadata {
 }
 
 /**
- * Get chat response from LLM based on video transcript and question
+ * Build messages array for LLM request
  */
-export async function getChatResponse(
+function buildMessages(
   transcript: TranscriptSegment[],
   chatHistory: ChatMessage[],
   question: string,
   metadata?: VideoMetadata
-): Promise<ChatResponse> {
-  try {
-    console.log('💬 Fetching chat response for question:', question);
-    console.log('📊 Video metadata received by LLM:', {
-      title: metadata?.title,
-      channel: metadata?.channelName,
-      segmentCount: transcript.length,
-    });
-
-    const client = getClient();
-
-    // Format transcript for LLM
-    const formattedTranscript = formatTranscriptForLLM(transcript);
-    
-    // Format metadata for context
-    let metadataContext = '';
-    if (metadata) {
-      metadataContext = `Video Information:
+): ChatMessage[] {
+  const formattedTranscript = formatTranscriptForLLM(transcript);
+  
+  let metadataContext = '';
+  if (metadata) {
+    metadataContext = `Video Information:
 - Title: ${metadata.title}
 - Channel: ${metadata.channelName}
 ${metadata.duration ? `- Duration: ${metadata.duration}` : ''}
@@ -114,39 +109,88 @@ ${metadata.viewCount ? `- Views: ${metadata.viewCount}` : ''}
 ${metadata.description ? `- Description: ${metadata.description.substring(0, 500)}${metadata.description.length > 500 ? '...' : ''}` : ''}
 
 `;
+  }
+
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `${metadataContext}Video Transcript with timestamps:\n\n${formattedTranscript}` },
+    ...chatHistory,
+    { role: 'user', content: question },
+  ];
+}
+
+/**
+ * Stream chat response from LLM with callbacks for each chunk
+ */
+export async function streamChatResponse(
+  transcript: TranscriptSegment[],
+  chatHistory: ChatMessage[],
+  question: string,
+  onChunk: (chunk: string, fullText: string) => void,
+  metadata?: VideoMetadata,
+  model: ModelId = 'gpt-5-mini'
+): Promise<ChatResponse> {
+  try {
+    console.log('💬 Streaming chat response for question:', question);
+
+    const client = getClient();
+    const messages = buildMessages(transcript, chatHistory, question, metadata);
+
+    const stream = await client.chat.completions.create({
+      model: model,
+      messages: messages as any,
+      stream: true,
+    });
+
+    let fullResponse = '';
+
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content || '';
+      if (content) {
+        fullResponse += content;
+        onChunk(content, fullResponse);
+      }
     }
 
-    // Build messages array
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
-      {
-        role: 'user',
-        content: `${metadataContext}Video Transcript with timestamps:\n\n${formattedTranscript}`,
-      },
-      ...chatHistory,
-      {
-        role: 'user',
-        content: question,
-      },
-    ];
+    console.log('✅ Chat response streamed');
+
+    return { response: fullResponse };
+  } catch (error) {
+    console.error('❌ Error streaming chat response:', error);
+    return {
+      response: '',
+      error: true,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error occurred',
+    };
+  }
+}
+
+/**
+ * Get chat response from LLM based on video transcript and question (non-streaming)
+ */
+export async function getChatResponse(
+  transcript: TranscriptSegment[],
+  chatHistory: ChatMessage[],
+  question: string,
+  metadata?: VideoMetadata,
+  model: ModelId = 'gpt-5-mini'
+): Promise<ChatResponse> {
+  try {
+    console.log('💬 Fetching chat response for question:', question);
+
+    const client = getClient();
+    const messages = buildMessages(transcript, chatHistory, question, metadata);
 
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: model,
       messages: messages as any,
-      temperature: 0.7,
-      max_tokens: 1000,
     });
 
     const aiResponse = response.choices[0]?.message?.content || '';
 
     console.log('✅ Chat response generated');
 
-    return {
-      response: aiResponse,
-    };
+    return { response: aiResponse };
   } catch (error) {
     console.error('❌ Error fetching chat response:', error);
     return {
