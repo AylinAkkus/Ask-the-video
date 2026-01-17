@@ -11,18 +11,24 @@ const ONBOARDING_STORAGE_KEY = 'vidchat-has-seen-hint'
 
 // Selectors for YouTube's info overlays that appear in top-right
 const INFO_OVERLAY_SELECTORS = [
-  '.iv-branding',           // Channel branding watermark
   '.ytp-ce-element',        // Card elements  
   '.ytp-ce-covering-overlay',
   '.ytp-paid-content-overlay',
   '.ytp-cards-teaser',      // Cards teaser (the "i" icon)
-  '.branding-img-container', // Branding image
 ]
 
 /**
- * Check if any info overlay is visible in the player
+ * Check if any info overlay is visible in the player's top-right area
  */
 function isInfoOverlayVisible(): boolean {
+  const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player')
+  if (!player) return false
+  
+  const playerRect = player.getBoundingClientRect()
+  // Define the "danger zone" - top-right corner where our button lives
+  const dangerZoneTop = playerRect.top + 60 // Below our button area
+  const dangerZoneRight = playerRect.right - 100 // Right side
+  
   for (const selector of INFO_OVERLAY_SELECTORS) {
     const el = document.querySelector(selector) as HTMLElement
     if (!el) continue
@@ -36,7 +42,12 @@ function isInfoOverlayVisible(): boolean {
     if (style.display === 'none' || style.visibility === 'hidden') continue
     if (parseFloat(style.opacity) < 0.1) continue
     
-    // Element is actually visible with real dimensions
+    // Check if element is actually in the top-right corner of the player
+    // Element must be within the danger zone to count as overlapping
+    const isInTopRightArea = rect.top < dangerZoneTop && rect.right > dangerZoneRight
+    if (!isInTopRightArea) continue
+    
+    // Element is actually visible with real dimensions in the top-right
     return true
   }
   return false
@@ -95,6 +106,10 @@ async function maybeShowOnboardingHint(btn: HTMLElement, playerContainer: HTMLEl
     const result = await chrome.storage.local.get(ONBOARDING_STORAGE_KEY)
     if (result[ONBOARDING_STORAGE_KEY]) return // Already seen
     
+    // Get button's current top position for tooltip placement
+    const btnTop = parseInt(btn.style.top, 10) || 16
+    const tooltipTop = btnTop + 44 // Button height (~36px) + 8px gap
+    
     // Add pulse animation
     const style = document.createElement('style')
     style.id = 'vidchat-onboarding-style'
@@ -108,7 +123,7 @@ async function maybeShowOnboardingHint(btn: HTMLElement, playerContainer: HTMLEl
       }
       .vidchat-hint {
         position: absolute;
-        top: 60px;
+        top: ${tooltipTop}px;
         right: 16px;
         background: #fff;
         color: #1a1a1a;
